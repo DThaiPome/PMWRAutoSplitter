@@ -1,5 +1,7 @@
 use asr::{settings::Gui};
 
+#[derive(Gui, Clone, Copy, PartialEq)]
+
 #[derive(Gui)]
 pub struct Settings {
     /// My Setting

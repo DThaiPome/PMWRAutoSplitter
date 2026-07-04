@@ -44,7 +44,7 @@ impl Splitter {
         if !self.race_started && !self.is_loading && !self.on_menu && Memory::current(memory.laps_completed) == 0 {
             self.race_started = true;
         }
-        if self.race_started && Memory::current(memory.laps_completed) == Memory::current(memory.total_laps)  {
+        if self.race_started && !self.is_loading && Memory::current(memory.laps_completed) == Memory::current(memory.total_laps)  {
             self.race_started = false;
             self.race_finished = true;
         }
