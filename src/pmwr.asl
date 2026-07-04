@@ -54,7 +54,7 @@ update
     if (!vars.race_started && current.loading_flag == 0 && current.location_id != 0 && current.laps_completed == 0) {
         vars.race_started = true;
     }
-    if (vars.race_started && current.laps_completed == current.total_laps) {
+    if (vars.race_started && !vars.is_loading && current.laps_completed == current.total_laps) {
         vars.race_started = false;
         vars.race_finished = true;
     }
@@ -103,7 +103,7 @@ reset
         vars.reset_flag = false;
         vars.restart_flag = true;
         vars.set_restart_game_time = true;
-        vars.restart_detected_time = diff;
+        vars.restart_time = diff;
         return true;
     }
     return false;
