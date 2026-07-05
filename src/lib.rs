@@ -55,5 +55,5 @@ async fn main() {
 fn component_update(process: &Process, state: &mut ComponentState) {
     state.settings.update();
     state.memory.update(process);
-    state.splitter.update(state.ticks, &state.memory);
+    state.splitter.update(state.ticks, &state.memory, &state.settings);
 }

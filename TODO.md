@@ -1,6 +1,7 @@
 # Settings
 ## Split options
-* Split on race finish (yes/no)
+* Split on race finish (yes/no) (DONE)
+* Split on lap
 * Split method:
     * Finish line: Split on crossing finish line
     * Exit: Split on level exit (main menu or next level)
@@ -9,15 +10,16 @@
 Split method doesn't make sense because we can't figure out whether we are on the last split rip
 
 ## Start options
-* Start on level entry
-* Start on level restart
+* Start on level entry (DONE)
+* Start on level restart (DONE)
 
 ## Reset options
-* Reset on level entry
-* Reset on level restart
+* Reset on level entry (DONE)
+* Reset on level restart (DONE)
+    * TODO: Don't check for splits, check whether a race hasn't been completed at all since the timer started.
 
 ## Timing Rules
-* Pause timer while on main menu
-* Pause timer during loads
+* Pause timer while on main menu (DONE)
+* Pause timer during loads (DONE)
 * Pause timer while on pause screen
 * Pause timer during post-race results

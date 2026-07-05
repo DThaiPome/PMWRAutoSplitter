@@ -2,78 +2,91 @@ use asr::timer::TimerState;
 
 use crate::Memory;
 use crate::TICK_RATE;
+use crate::settings::Settings;
 
 #[derive(Default)]
 pub struct Splitter {
-    is_loading: bool,
-    on_menu: bool,
-    race_started: bool,
-    race_finished: bool,
-    reset_tracked: bool,
-    reset_flag: bool,
-    restart_flag: bool,
-    restart_detected_time: f64,
-    set_restart_game_time: bool,
-    restart_time: f64
+    loading_flag: bool,
+    menu_flag: bool,
+    race_started_flag: bool,
+    race_finished_this_run_flag: bool,
+    restart_tracked_flag: bool,
+    buffered_restart_detected_time: f64,
+    buffered_restart_new_game_time: f64,
+
+    menu_reset_signal: bool,
+    menu_start_signal: bool,
+    menu_restart_signal: bool,
+    restart_start_signal: bool,
+    buffered_restart_signal: bool,
+    set_game_time_after_buffered_restart_signal: bool,
+    race_finish_split_signal: bool,
 }
 
 impl Splitter {
-    pub fn update(&mut self, ticks: u64, memory: &Memory) {
+    pub fn update(&mut self, ticks: u64, memory: &Memory, settings: &Settings) {
         self.update_vars(ticks, &memory);
-        self.update_timer(ticks);
+        self.update_timer(ticks, &settings);
     }
 
     fn update_vars(&mut self, ticks: u64, memory: &Memory) {
+        // Check for stopped timer to clear race finish flag
+        if asr::timer::state() != TimerState::Running && asr::timer::state() != TimerState::Paused {
+            self.race_finished_this_run_flag = false;
+        }
+
         // Check for loading
         if Memory::current(memory.loading_flag) && !Memory::old(memory.loading_flag) {
-            self.is_loading = true;
+            self.loading_flag = true;
         }
         else if !Memory::current(memory.loading_flag) && Memory::old(memory.loading_flag) {
-            self.is_loading = false;
+            self.loading_flag = false;
         }
 
         // Check for menu
-        self.on_menu = Memory::current(memory.location_id) == 0;
+        self.menu_flag = Memory::current(memory.location_id) == 0;
 
-        // Check for menu->level run start
-        if asr::timer::state() == TimerState::NotRunning && Memory::current(memory.location_id) != 0 && Memory::old(memory.location_id) == 0 {
-            self.restart_flag = true;
+        // Check for menu->level entry
+        if Memory::current(memory.location_id) != 0 && Memory::old(memory.location_id) == 0 {
+            self.menu_start_signal = true;
+            self.menu_reset_signal = true;
         }
 
         // Check for race status
-        if !self.race_started && !self.is_loading && !self.on_menu && Memory::current(memory.laps_completed) == 0 {
-            self.race_started = true;
+        if !self.race_started_flag && !self.loading_flag && !self.menu_flag && Memory::current(memory.laps_completed) == 0 {
+            self.race_started_flag = true;
         }
-        if self.race_started && !self.is_loading && Memory::current(memory.laps_completed) == Memory::current(memory.total_laps)  {
-            self.race_started = false;
-            self.race_finished = true;
+        if self.race_started_flag && !self.loading_flag && Memory::current(memory.laps_completed) == Memory::current(memory.total_laps)  {
+            self.race_started_flag = false;
+            self.race_finish_split_signal = true;
+            self.race_finished_this_run_flag = true;
         }
 
         // Track restarts
-        if !self.on_menu && !self.is_loading {
+        if !self.menu_flag && !self.loading_flag {
             if Memory::current(memory.time_elapsed) < Memory::old(memory.time_elapsed) {
-                if !self.reset_tracked  {
-                    self.reset_flag = true;
-                    self.restart_detected_time = (ticks as f64) / TICK_RATE;
+                if !self.restart_tracked_flag  {
+                    self.buffered_restart_signal = true;
+                    self.buffered_restart_detected_time = (ticks as f64) / TICK_RATE;
                 }
-                self.reset_tracked = true;
+                self.restart_tracked_flag = true;
             }
             else {
-                self.reset_tracked = false;
+                self.restart_tracked_flag = false;
             }
         }
     }
 
-    fn update_timer(&mut self, ticks: u64) {
-        self.eval_split();
-        self.eval_reset(ticks);
+    fn update_timer(&mut self, ticks: u64, settings: &Settings) {
+        self.eval_split(settings);
+        self.eval_reset(settings, ticks);
+        self.eval_load(settings);
+        self.eval_start(settings);
         self.eval_gametime();
-        self.eval_load();
-        self.eval_start();
     }
 
-    fn eval_load(&self) {
-        let should_pause = self.is_loading || self.on_menu;
+    fn eval_load(&self, settings: &Settings) {
+        let should_pause = (self.loading_flag && settings.pause_on_loads) || (self.menu_flag && settings.pause_on_menu);
         if should_pause {
             asr::timer::pause_game_time();
         }
@@ -82,40 +95,54 @@ impl Splitter {
         }
     }
 
-    fn eval_split(&mut self) {
-        if asr::timer::state() != TimerState::Running {
-            return;
-        }
+    fn eval_split(&mut self, settings: &Settings) {
+        let can_split = asr::timer::state() == TimerState::Running;
         // Split on race finish
-        if self.race_finished {
-            asr::print_message("SPLITTING");
-            self.race_finished = false;
-            asr::timer::split();
+        if self.race_finish_split_signal {
+            self.race_finish_split_signal = false;
+            if settings.split_on_finish && can_split {
+                asr::print_message("SPLITTING");
+                asr::timer::split();
+            }
         }
     }
 
-    fn eval_reset(&mut self, ticks: u64) {
-        if asr::timer::state() == TimerState::Ended {
-            return;
-        }
-        if self.on_menu || self.is_loading || asr::timer::current_split_index().unwrap_or(0) > 0 {
-            self.reset_flag = false;
+    fn eval_reset(&mut self, settings: &Settings, ticks: u64) {
+        let timer_can_reset = asr::timer::state() == TimerState::Running || asr::timer::state() == TimerState::Ended || asr::timer::state() == TimerState::Paused;
+
+        if self.menu_reset_signal {
+            self.buffered_restart_signal = false;
+            self.menu_reset_signal = false;
+            if settings.reset_on_entry && timer_can_reset && !self.race_finished_this_run_flag {
+                asr::print_message("RESETTING ON LEVEL ENTRY");
+                self.race_finished_this_run_flag = false;
+                self.menu_restart_signal = true;
+                asr::timer::reset();
+            }
             return;
         }
 
-        if self.reset_flag {
+        if self.menu_flag || self.loading_flag || self.race_finished_this_run_flag {
+            self.buffered_restart_signal = false;
+            return;
+        }
+
+        if self.buffered_restart_signal {
             let current_time = (ticks as f64) / TICK_RATE;
-            let diff = current_time - self.restart_detected_time;
+            let diff = current_time - self.buffered_restart_detected_time;
             if diff < 0.08 {
                 return;
             }
-            asr::print_message("RESETTING");
 
-            self.reset_flag = false;
-            self.restart_flag = true;
-            self.set_restart_game_time = true;
-            self.restart_time = diff;
-            asr::timer::reset();
+            self.buffered_restart_signal = false;
+            self.restart_start_signal = true;
+            if settings.reset_on_restart && timer_can_reset {
+                asr::print_message("RESETTING ON LEVEL RESTART");
+                self.race_finished_this_run_flag = false;
+                self.set_game_time_after_buffered_restart_signal = true;
+                self.buffered_restart_new_game_time = diff;
+                asr::timer::reset();
+            }
         }
     }
 
@@ -123,21 +150,23 @@ impl Splitter {
         if asr::timer::state() == TimerState::NotRunning || asr::timer::state() == TimerState::Ended {
             return;
         }
-        if self.set_restart_game_time {
+        if self.set_game_time_after_buffered_restart_signal {
             asr::print_message("UPDATING GAMETIME");
-            self.set_restart_game_time = false;
-            asr::timer::set_game_time(asr::time::Duration::seconds_f64(self.restart_time));
+            self.set_game_time_after_buffered_restart_signal = false;
+            asr::timer::set_game_time(asr::time::Duration::seconds_f64(self.buffered_restart_new_game_time));
         }
     }
 
-    fn eval_start(&mut self) {
-        if asr::timer::state() == TimerState::Running {
-            return;
-        }
-        if self.restart_flag {
+    fn eval_start(&mut self, settings: &Settings) {
+        let can_start = asr::timer::state() != TimerState::Running;
+        if can_start && ((self.restart_start_signal && (settings.start_on_restart || settings.reset_on_restart))
+        || (self.menu_start_signal && settings.start_on_entry)
+        || (self.menu_restart_signal && settings.reset_on_entry)) {
             asr::print_message("STARTING");
-            self.restart_flag = false;
             asr::timer::start();
         }
+        self.restart_start_signal = false;
+        self.menu_start_signal = false;
+        self.menu_restart_signal = false;
     }
 }
