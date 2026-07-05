@@ -1,6 +1,7 @@
 use asr::{Address, Error, Process, watcher::Watcher};
 
 const OFFSET_LOADING_FLAG: u64 = 0x126488;
+const OFFSET_PAUSE_FLAG: u64 = 0x1258E0;
 const OFFSET_LOCATION_ID: u64 = 0x218518;
 const OFFSET_LAPS_COMPLETED: u64 = 0x126608;
 const OFFSET_TOTAL_LAPS: u64 = 0x1264C8;
@@ -10,6 +11,7 @@ const OFFSET_TIME_ELAPSED: u64 = 0x217A74;
 pub struct Memory {
     process_base_address: Address,
     pub loading_flag: Watcher<bool>,
+    pub pause_flag: Watcher<bool>,
     pub location_id: Watcher<i32>,
     pub laps_completed: Watcher<i32>,
     pub total_laps: Watcher<i32>,
@@ -34,6 +36,7 @@ impl Memory {
 
     pub fn update(&mut self, process: &Process) {
         update_bool(process, self.address_of(OFFSET_LOADING_FLAG), &mut self.loading_flag);
+        update_bool(process, self.address_of(OFFSET_PAUSE_FLAG), &mut self.pause_flag);
         update_int(process, self.address_of(OFFSET_LOCATION_ID), &mut self.location_id);
         update_int(process, self.address_of(OFFSET_LAPS_COMPLETED), &mut self.laps_completed);
         update_int(process, self.address_of(OFFSET_TOTAL_LAPS), &mut self.total_laps);

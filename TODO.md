@@ -16,10 +16,12 @@ Split method doesn't make sense because we can't figure out whether we are on th
 ## Reset options
 * Reset on level entry (DONE)
 * Reset on level restart (DONE)
-    * TODO: Don't check for splits, check whether a race hasn't been completed at all since the timer started.
+    * (DONE): Don't check for splits, check whether a race hasn't been completed at all since the timer started.
 
 ## Timing Rules
 * Pause timer while on main menu (DONE)
 * Pause timer during loads (DONE)
-* Pause timer while on pause screen
-* Pause timer during post-race results
+* Pause timer while on pause screen (DONE)
+* Pause timer during post-race results (DONE)
+
+TODO: IGT timing method

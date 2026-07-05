@@ -7,8 +7,10 @@ use crate::settings::Settings;
 #[derive(Default)]
 pub struct Splitter {
     loading_flag: bool,
+    pause_flag: bool,
     menu_flag: bool,
     race_started_flag: bool,
+    post_race_flag: bool,
     race_finished_this_run_flag: bool,
     restart_tracked_flag: bool,
     buffered_restart_detected_time: f64,
@@ -36,12 +38,10 @@ impl Splitter {
         }
 
         // Check for loading
-        if Memory::current(memory.loading_flag) && !Memory::old(memory.loading_flag) {
-            self.loading_flag = true;
-        }
-        else if !Memory::current(memory.loading_flag) && Memory::old(memory.loading_flag) {
-            self.loading_flag = false;
-        }
+        self.loading_flag = Memory::current(memory.loading_flag);
+        
+        // Check for pauses
+        self.pause_flag = Memory::current(memory.pause_flag);
 
         // Check for menu
         self.menu_flag = Memory::current(memory.location_id) == 0;
@@ -60,12 +60,22 @@ impl Splitter {
             self.race_started_flag = false;
             self.race_finish_split_signal = true;
             self.race_finished_this_run_flag = true;
+            self.post_race_flag = true;
+        }
+
+        // Check post race flag
+        if self.race_started_flag {
+            self.post_race_flag = false;
+        }
+        else if self.loading_flag || self.menu_flag {
+            self.post_race_flag = false;
         }
 
         // Track restarts
         if !self.menu_flag && !self.loading_flag {
             if Memory::current(memory.time_elapsed) < Memory::old(memory.time_elapsed) {
                 if !self.restart_tracked_flag  {
+                    self.post_race_flag = false;
                     self.buffered_restart_signal = true;
                     self.buffered_restart_detected_time = (ticks as f64) / TICK_RATE;
                 }
@@ -86,7 +96,10 @@ impl Splitter {
     }
 
     fn eval_load(&self, settings: &Settings) {
-        let should_pause = (self.loading_flag && settings.pause_on_loads) || (self.menu_flag && settings.pause_on_menu);
+        let should_pause = (self.loading_flag && settings.pause_on_loads) 
+        || (self.menu_flag && settings.pause_on_menu)
+        || (self.pause_flag && settings.pause_on_pause)
+        || (self.post_race_flag && settings.pause_on_post_race);
         if should_pause {
             asr::timer::pause_game_time();
         }
