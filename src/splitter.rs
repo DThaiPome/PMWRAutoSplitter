@@ -23,6 +23,7 @@ pub struct Splitter {
     buffered_restart_signal: bool,
     set_game_time_after_buffered_restart_signal: bool,
     race_finish_split_signal: bool,
+    lap_split_signal: bool
 }
 
 impl Splitter {
@@ -61,6 +62,9 @@ impl Splitter {
             self.race_finish_split_signal = true;
             self.race_finished_this_run_flag = true;
             self.post_race_flag = true;
+        }
+        else if self.race_started_flag && !self.loading_flag && Memory::current(memory.laps_completed) > Memory::old(memory.laps_completed) {
+            self.lap_split_signal = true;
         }
 
         // Check post race flag
@@ -110,14 +114,14 @@ impl Splitter {
 
     fn eval_split(&mut self, settings: &Settings) {
         let can_split = asr::timer::state() == TimerState::Running;
-        // Split on race finish
-        if self.race_finish_split_signal {
-            self.race_finish_split_signal = false;
-            if settings.split_on_finish && can_split {
-                asr::print_message("SPLITTING");
-                asr::timer::split();
-            }
+        let should_split = can_split && ((self.race_finish_split_signal && settings.split_on_finish)
+        || (self.lap_split_signal && settings.split_on_lap));
+        if should_split {
+            asr::print_message("SPLITTING");
+            asr::timer::split();
         }
+        self.lap_split_signal = false;
+        self.race_finish_split_signal = false;
     }
 
     fn eval_reset(&mut self, settings: &Settings, ticks: u64) {

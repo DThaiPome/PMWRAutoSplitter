@@ -1,7 +1,7 @@
 # Settings
 ## Split options
 * Split on race finish (yes/no) (DONE)
-* Split on lap
+* Split on lap (DONE)
 * Split method:
     * Finish line: Split on crossing finish line
     * Exit: Split on level exit (main menu or next level)
