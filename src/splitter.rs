@@ -177,9 +177,9 @@ impl Splitter {
         || (self.lap_split_signal && settings.split_on_lap));
         if should_split {
             asr::print_message("SPLITTING");
-            // if settings.timing_method.current == TimingMethod::InGameTime {
-            //     asr::timer::set_game_time(asr::time::Duration::milliseconds(self.igt_time));
-            // }
+            if settings.timing_method.current == TimingMethod::InGameTime && settings.split_on_lap {
+                asr::timer::set_game_time(asr::time::Duration::milliseconds(self.igt_display_at_last_lap));
+            }
             asr::timer::split();
         }
         self.lap_split_signal = false;
