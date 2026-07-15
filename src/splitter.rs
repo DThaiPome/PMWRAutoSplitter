@@ -1,3 +1,5 @@
+use core::cmp::max;
+
 use asr::timer::TimerState;
 
 use crate::Memory;
@@ -19,6 +21,8 @@ pub struct Splitter {
     lap_times: [i32; 5],
     igt_time: i64,
     igt_time_display: i64,
+    igt_display_at_last_lap: i64,
+    igt_reset_backup: i64,
 
     menu_reset_signal: bool,
     menu_start_signal: bool,
@@ -42,6 +46,8 @@ impl Splitter {
             self.race_finished_this_run_flag = false;
             self.igt_time = 0;
             self.igt_time_display = 0;
+            self.igt_display_at_last_lap = 0;
+            self.igt_reset_backup = 0;
         }
 
         // Check for loading
@@ -52,6 +58,25 @@ impl Splitter {
 
         // Check for menu
         self.menu_flag = Memory::current(memory.location_id) == 0;
+
+        if self.race_started_flag {
+            self.post_race_flag = false;
+        }
+        if self.menu_flag || self.loading_flag {
+            self.igt_time = self.igt_reset_backup;
+            self.igt_time_display = self.igt_time;
+            self.igt_display_at_last_lap = self.igt_time;
+            self.race_started_flag = false;
+        }
+
+
+        // Check post race flag
+        if self.race_started_flag {
+            self.post_race_flag = false;
+        }
+        else if self.loading_flag || self.menu_flag {
+            self.post_race_flag = false;
+        }
 
         // Check for menu->level entry
         if Memory::current(memory.location_id) != 0 && Memory::old(memory.location_id) == 0 {
@@ -68,9 +93,10 @@ impl Splitter {
         let old_laps_completed = Memory::old(memory.laps_completed);
         let total_laps = Memory::current(memory.total_laps);
         
-        let in_race = self.race_started_flag && !self.loading_flag;
+        let in_race = self.race_started_flag && !self.loading_flag && !self.menu_flag;
         let single_lap_complete = in_race && current_laps_completed > old_laps_completed;
         let final_lap_complete = in_race && current_laps_completed == total_laps;
+        let lap_times = Memory::current(memory.lap_times);
         if final_lap_complete  {
             self.race_started_flag = false;
             self.race_finish_split_signal = true;
@@ -78,27 +104,23 @@ impl Splitter {
             self.post_race_flag = true;
             
             // IGT time
-            let lap_times = Memory::current(memory.lap_times);
             let mut track_time: i64 = 0;
             for i in 0..5 {
                 track_time += lap_times[i] as i64;
             }
             self.igt_time += ((track_time / 10) as i64) * 10;
             self.igt_time_display = self.igt_time;
-            // asr::print_message(&format!("IGT TIME: {}", self.igt_time));
+            self.igt_reset_backup = self.igt_time;
+            self.igt_display_at_last_lap = self.igt_time;
         }
         else if single_lap_complete {
             self.lap_split_signal = true;
-            let lap_time = (Memory::current(memory.lap_times)[(Memory::current(memory.laps_completed) - 1) as usize] / 10) * 10;
-            self.igt_time_display += lap_time as i64;
+            let lap_time = (lap_times[(current_laps_completed - 1) as usize] / 10) * 10;
+            self.igt_display_at_last_lap += lap_time as i64;
         }
-
-        // Check post race flag
         if self.race_started_flag {
-            self.post_race_flag = false;
-        }
-        else if self.loading_flag || self.menu_flag {
-            self.post_race_flag = false;
+            self.igt_time_display = self.igt_display_at_last_lap + ((lap_times[current_laps_completed as usize] / 10) * 10) as i64;
+            self.igt_reset_backup = max(self.igt_reset_backup, self.igt_time_display);
         }
 
         // Track restarts
@@ -108,6 +130,9 @@ impl Splitter {
                     self.post_race_flag = false;
                     self.buffered_restart_signal = true;
                     self.buffered_restart_detected_time = (ticks as f64) / TICK_RATE;
+                    self.igt_time = self.igt_reset_backup;
+                    self.igt_time_display = self.igt_time;
+                    self.igt_display_at_last_lap = self.igt_time;
                 }
                 self.restart_tracked_flag = true;
             }
@@ -172,6 +197,8 @@ impl Splitter {
                 self.race_finished_this_run_flag = false;
                 self.igt_time = 0;
                 self.igt_time_display = 0;
+                self.igt_display_at_last_lap = 0;
+                self.igt_reset_backup = 0;
                 self.menu_restart_signal = true;
                 asr::timer::reset();
             }
@@ -195,6 +222,10 @@ impl Splitter {
             if settings.reset_on_restart && timer_can_reset {
                 asr::print_message("RESETTING ON LEVEL RESTART");
                 self.race_finished_this_run_flag = false;
+                self.igt_time = 0;
+                self.igt_time_display = 0;
+                self.igt_display_at_last_lap = 0;
+                self.igt_reset_backup = 0;
                 self.set_game_time_after_buffered_restart_signal = true;
                 self.buffered_restart_new_game_time = diff;
                 asr::timer::reset();
