@@ -1,4 +1,4 @@
-use asr::{Address, Error, Process, watcher::Watcher};
+use asr::{Address, Error, Process, watcher::{Pair, Watcher}};
 
 const OFFSET_LOADING_FLAG: u64 = 0x126488;
 const OFFSET_PAUSE_FLAG: u64 = 0x1258E0;
@@ -6,6 +6,7 @@ const OFFSET_LOCATION_ID: u64 = 0x218518;
 const OFFSET_LAPS_COMPLETED: u64 = 0x126608;
 const OFFSET_TOTAL_LAPS: u64 = 0x1264C8;
 const OFFSET_TIME_ELAPSED: u64 = 0x217A74;
+const OFFSET_LAP_TIMES: u64 = 0x126610;
 
 #[derive(Default)]
 pub struct Memory {
@@ -15,7 +16,8 @@ pub struct Memory {
     pub location_id: Watcher<i32>,
     pub laps_completed: Watcher<i32>,
     pub total_laps: Watcher<i32>,
-    pub time_elapsed: Watcher<i32>
+    pub time_elapsed: Watcher<i32>,
+    pub lap_times: Watcher<[i32; 5]>
 }
 
 impl Memory {
@@ -41,6 +43,7 @@ impl Memory {
         update_int(process, self.address_of(OFFSET_LAPS_COMPLETED), &mut self.laps_completed);
         update_int(process, self.address_of(OFFSET_TOTAL_LAPS), &mut self.total_laps);
         update_int(process, self.address_of(OFFSET_TIME_ELAPSED), &mut self.time_elapsed);
+        update_int_buf(process, self.address_of(OFFSET_LAP_TIMES), &mut self.lap_times);
     }
 
     fn address_of(&self, offset: u64) -> Address {
@@ -73,4 +76,14 @@ fn update_int(process: &Process, address: Address, watcher: &mut Watcher<i32>) {
     let current_value = watcher.pair.unwrap_or_default().current;
     let val = process.read(address).unwrap_or(current_value);
     watcher.update_infallible(val);
+}
+
+fn update_int_buf<const COUNT: usize>(process: &Process, address: Address, watcher: &mut Watcher<[i32; COUNT]>) {
+    let current_value = watcher.pair.unwrap_or(Pair { old: [0; COUNT], current: [0; COUNT] }).current;
+    let mut buf = [0; COUNT];
+    for i in 0..COUNT {
+        let result: Result<i32, Error> = process.read(address.add(4 * (i as u64)));
+        buf[i] = result.unwrap_or(current_value[i]);
+    }
+    watcher.update_infallible(buf);
 }

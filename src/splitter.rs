@@ -3,6 +3,7 @@ use asr::timer::TimerState;
 use crate::Memory;
 use crate::TICK_RATE;
 use crate::settings::Settings;
+use crate::settings::TimingMethod;
 
 #[derive(Default)]
 pub struct Splitter {
@@ -15,6 +16,9 @@ pub struct Splitter {
     restart_tracked_flag: bool,
     buffered_restart_detected_time: f64,
     buffered_restart_new_game_time: f64,
+    lap_times: [i32; 5],
+    igt_time: i64,
+    igt_time_display: i64,
 
     menu_reset_signal: bool,
     menu_start_signal: bool,
@@ -36,6 +40,8 @@ impl Splitter {
         // Check for stopped timer to clear race finish flag
         if asr::timer::state() != TimerState::Running && asr::timer::state() != TimerState::Paused {
             self.race_finished_this_run_flag = false;
+            self.igt_time = 0;
+            self.igt_time_display = 0;
         }
 
         // Check for loading
@@ -56,15 +62,35 @@ impl Splitter {
         // Check for race status
         if !self.race_started_flag && !self.loading_flag && !self.menu_flag && Memory::current(memory.laps_completed) == 0 {
             self.race_started_flag = true;
+            self.lap_times.fill(0);
         }
-        if self.race_started_flag && !self.loading_flag && Memory::current(memory.laps_completed) == Memory::current(memory.total_laps)  {
+        let current_laps_completed = Memory::current(memory.laps_completed);
+        let old_laps_completed = Memory::old(memory.laps_completed);
+        let total_laps = Memory::current(memory.total_laps);
+        
+        let in_race = self.race_started_flag && !self.loading_flag;
+        let single_lap_complete = in_race && current_laps_completed > old_laps_completed;
+        let final_lap_complete = in_race && current_laps_completed == total_laps;
+        if final_lap_complete  {
             self.race_started_flag = false;
             self.race_finish_split_signal = true;
             self.race_finished_this_run_flag = true;
             self.post_race_flag = true;
+            
+            // IGT time
+            let lap_times = Memory::current(memory.lap_times);
+            let mut track_time: i64 = 0;
+            for i in 0..5 {
+                track_time += lap_times[i] as i64;
+            }
+            self.igt_time += ((track_time / 10) as i64) * 10;
+            self.igt_time_display = self.igt_time;
+            // asr::print_message(&format!("IGT TIME: {}", self.igt_time));
         }
-        else if self.race_started_flag && !self.loading_flag && Memory::current(memory.laps_completed) > Memory::old(memory.laps_completed) {
+        else if single_lap_complete {
             self.lap_split_signal = true;
+            let lap_time = (Memory::current(memory.lap_times)[(Memory::current(memory.laps_completed) - 1) as usize] / 10) * 10;
+            self.igt_time_display += lap_time as i64;
         }
 
         // Check post race flag
@@ -92,32 +118,43 @@ impl Splitter {
     }
 
     fn update_timer(&mut self, ticks: u64, settings: &Settings) {
+        self.eval_gametime(settings);
         self.eval_split(settings);
         self.eval_reset(settings, ticks);
         self.eval_load(settings);
         self.eval_start(settings);
-        self.eval_gametime();
     }
 
     fn eval_load(&self, settings: &Settings) {
-        let should_pause = (self.loading_flag && settings.pause_on_loads) 
-        || (self.menu_flag && settings.pause_on_menu)
-        || (self.pause_flag && settings.pause_on_pause)
-        || (self.post_race_flag && settings.pause_on_post_race);
-        if should_pause {
-            asr::timer::pause_game_time();
+        match settings.timing_method.current {
+            TimingMethod::LoadRemovedTime => {
+                let should_pause = (self.loading_flag && settings.pause_on_loads) 
+                || (self.menu_flag && settings.pause_on_menu)
+                || (self.pause_flag && settings.pause_on_pause)
+                || (self.post_race_flag && settings.pause_on_post_race);
+                if should_pause {
+                    asr::timer::pause_game_time();
+                }
+                else {
+                    asr::timer::resume_game_time();
+                }
+            },
+            TimingMethod::InGameTime => {
+                asr::timer::pause_game_time();
+            }
         }
-        else {
-            asr::timer::resume_game_time();
-        }
+
     }
 
     fn eval_split(&mut self, settings: &Settings) {
         let can_split = asr::timer::state() == TimerState::Running;
-        let should_split = can_split && ((self.race_finish_split_signal && settings.split_on_finish)
+        let should_split = can_split && ((self.race_finish_split_signal && (settings.split_on_finish || settings.split_on_lap))
         || (self.lap_split_signal && settings.split_on_lap));
         if should_split {
             asr::print_message("SPLITTING");
+            // if settings.timing_method.current == TimingMethod::InGameTime {
+            //     asr::timer::set_game_time(asr::time::Duration::milliseconds(self.igt_time));
+            // }
             asr::timer::split();
         }
         self.lap_split_signal = false;
@@ -133,6 +170,8 @@ impl Splitter {
             if settings.reset_on_entry && timer_can_reset && !self.race_finished_this_run_flag {
                 asr::print_message("RESETTING ON LEVEL ENTRY");
                 self.race_finished_this_run_flag = false;
+                self.igt_time = 0;
+                self.igt_time_display = 0;
                 self.menu_restart_signal = true;
                 asr::timer::reset();
             }
@@ -163,14 +202,21 @@ impl Splitter {
         }
     }
 
-    fn eval_gametime(&mut self) {
+    fn eval_gametime(&mut self, settings: &Settings) {
         if asr::timer::state() == TimerState::NotRunning || asr::timer::state() == TimerState::Ended {
             return;
         }
-        if self.set_game_time_after_buffered_restart_signal {
-            asr::print_message("UPDATING GAMETIME");
-            self.set_game_time_after_buffered_restart_signal = false;
-            asr::timer::set_game_time(asr::time::Duration::seconds_f64(self.buffered_restart_new_game_time));
+        match settings.timing_method.current {
+            TimingMethod::LoadRemovedTime => {
+                if self.set_game_time_after_buffered_restart_signal {
+                    asr::print_message("UPDATING GAMETIME");
+                    self.set_game_time_after_buffered_restart_signal = false;
+                    asr::timer::set_game_time(asr::time::Duration::seconds_f64(self.buffered_restart_new_game_time));
+                }
+            }
+            TimingMethod::InGameTime => {
+                asr::timer::set_game_time(asr::time::Duration::milliseconds(self.igt_time_display));
+            }
         }
     }
 
