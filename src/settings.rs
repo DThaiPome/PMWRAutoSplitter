@@ -45,25 +45,6 @@ pub struct Settings {
 
     /// Split on crossing the finish line for each lap
     #[default = false]
-    pub split_on_lap: bool,
-
-    /// Load-Removed Timing Rules
-    _title_lrt: Title,
-
-    /// Pause timer while on the main menu
-    #[default = true]
-    pub pause_on_menu: bool,
-
-    /// Pause timer during loads
-    #[default = true]
-    pub pause_on_loads: bool,
-
-    /// Pause timer while the game is paused during a race
-    #[default = false]
-    pub pause_on_pause: bool,
-
-    /// Pause timer during the post-race results period
-    #[default = true]
-    pub pause_on_post_race: bool
+    pub split_on_lap: bool
 
 }
