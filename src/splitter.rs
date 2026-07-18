@@ -10,7 +10,6 @@ use crate::settings::TimingMethod;
 #[derive(Default)]
 pub struct Splitter {
     loading_flag: bool,
-    pause_flag: bool,
     menu_flag: bool,
     race_started_flag: bool,
     post_race_flag: bool,
@@ -26,7 +25,6 @@ pub struct Splitter {
 
     menu_reset_signal: bool,
     menu_start_signal: bool,
-    menu_restart_signal: bool,
     restart_start_signal: bool,
     buffered_restart_signal: bool,
     set_game_time_after_buffered_restart_signal: bool,
@@ -52,9 +50,6 @@ impl Splitter {
 
         // Check for loading
         self.loading_flag = Memory::current(memory.loading_flag);
-        
-        // Check for pauses
-        self.pause_flag = Memory::current(memory.pause_flag);
 
         // Check for menu
         self.menu_flag = Memory::current(memory.location_id) == 0;
@@ -146,17 +141,14 @@ impl Splitter {
         self.eval_gametime(settings);
         self.eval_split(settings);
         self.eval_reset(settings, ticks);
-        self.eval_load(settings);
         self.eval_start(settings);
+        self.eval_load(settings);
     }
 
     fn eval_load(&self, settings: &Settings) {
         match settings.timing_method.current {
             TimingMethod::LoadRemovedTime => {
-                let should_pause = (self.loading_flag && settings.pause_on_loads) 
-                || (self.menu_flag && settings.pause_on_menu)
-                || (self.pause_flag && settings.pause_on_pause)
-                || (self.post_race_flag && settings.pause_on_post_race);
+                let should_pause = self.loading_flag || self.menu_flag || self.post_race_flag;
                 if should_pause {
                     asr::timer::pause_game_time();
                 }
@@ -199,7 +191,6 @@ impl Splitter {
                 self.igt_time_display = 0;
                 self.igt_display_at_last_lap = 0;
                 self.igt_reset_backup = 0;
-                self.menu_restart_signal = true;
                 asr::timer::reset();
             }
             return;
@@ -253,14 +244,12 @@ impl Splitter {
 
     fn eval_start(&mut self, settings: &Settings) {
         let can_start = asr::timer::state() != TimerState::Running;
-        if can_start && ((self.restart_start_signal && (settings.start_on_restart || settings.reset_on_restart))
-        || (self.menu_start_signal && settings.start_on_entry)
-        || (self.menu_restart_signal && settings.reset_on_entry)) {
+        if can_start && ((self.restart_start_signal && settings.start_on_restart)
+        || (self.menu_start_signal && settings.start_on_entry)) {
             asr::print_message("STARTING");
             asr::timer::start();
         }
         self.restart_start_signal = false;
         self.menu_start_signal = false;
-        self.menu_restart_signal = false;
     }
 }
